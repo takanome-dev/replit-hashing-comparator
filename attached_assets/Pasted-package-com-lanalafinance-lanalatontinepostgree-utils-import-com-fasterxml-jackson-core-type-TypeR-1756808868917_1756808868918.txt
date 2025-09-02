@@ -1,0 +1,103 @@
+package com.lanalafinance.lanalatontinepostgree.utils;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import javax.crypto.Cipher;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Map;
+import java.util.TreeMap;
+
+public class SignatureEncryptionUtilsPart {
+
+    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+    private static final String AES_ALGORITHM = "AES";
+
+    // Clés
+    private static final String secretKey = "a17f840705bf5b57"; // pour encryption AES
+    private static final String clientID = "5e1a25994b0a4651a25ce"; //
+    private static final String apiKey = "8fa68c172bbe4"; // pour signature HMAC
+
+    public static void test(String body) throws Exception {
+        Map<String, Object> map = mapper.readValue(body, new TypeReference<Map<String, Object>>() {});
+        Map<String, Object> sorted = new TreeMap<>(map);
+        Map<String, String> flatMap = new TreeMap<>();
+        flattenJson("", sorted, flatMap);
+
+        // Étape 2 : Générer la chaîne sans espace ni délimiteur
+        StringBuilder rawBody = new StringBuilder();
+        for (Map.Entry<String, String> entry : flatMap.entrySet()) {
+            rawBody.append(entry.getKey()).append(entry.getValue());
+        }
+
+        rawBody.append("null");
+        System.out.println("Raw String: " + rawBody);
+
+
+        // Étape 3 : Générer signature HMAC
+        String signature = generateHmacSignature(rawBody.toString(), apiKey);
+//        String signatureSe = generateHmacSignature(rawBody.toString(), apiKey);
+        System.out.println("Signature: " + signature);
+
+        // Étape 4 : Crypter le JSON complet (avant tri)
+        String encryptedPayload = encryptData(body);
+        System.out.println("Encrypted Payload: " + encryptedPayload);
+        System.out.println("Decrypted Payload: " + decryptToken(encryptedPayload));
+
+    }
+
+    public static void generateTokenAuthentification(){
+        String credentials = clientID + ":" + secretKey;
+        String encodedAuth = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+
+        System.out.println("token auth: "+encodedAuth);
+    }
+
+
+    // Aplatissement récursif
+    private static void flattenJson(String prefix, Map<String, Object> map, Map<String, String> flatMap) {
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            String key = prefix.isEmpty() ? entry.getKey() : prefix + "." + entry.getKey();
+            Object value = entry.getValue();
+
+            if (value instanceof Map) {
+                flattenJson(key, (Map<String, Object>) value, flatMap);
+            } else {
+                flatMap.put(key, value != null ? value.toString() : "");
+            }
+        }
+    }
+
+    // Signature HMAC SHA256
+    public static String generateHmacSignature(String data, String key) throws Exception {
+        Mac sha256_HMAC = Mac.getInstance(HMAC_ALGORITHM);
+        SecretKeySpec secretKeySpec = new SecretKeySpec(key.getBytes("UTF-8"), HMAC_ALGORITHM);
+        sha256_HMAC.init(secretKeySpec);
+        byte[] hmacBytes = sha256_HMAC.doFinal(data.getBytes("UTF-8"));
+        return Base64.getEncoder().encodeToString(hmacBytes);
+    }
+
+    // Encryptage AES
+    public static String encryptData(String data) throws Exception {
+        byte[] keyBytes = Arrays.copyOf(secretKey.getBytes("UTF-8"), 16); // AES = 128 bits (16 bytes)
+        SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, AES_ALGORITHM);
+        Cipher cipher = Cipher.getInstance(AES_ALGORITHM);
+        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec);
+        byte[] encryptedBytes = cipher.doFinal(data.getBytes("UTF-8"));
+        return Base64.getEncoder().encodeToString(encryptedBytes);
+    }
+
+    public static String decryptToken(String encryptedToken) throws Exception {
+        byte[] key = Arrays.copyOf(secretKey.getBytes("UTF-8"), 16);
+        SecretKeySpec secretKeySpec = new SecretKeySpec(key, AES_ALGORITHM);
+        Cipher cipher = Cipher.getInstance(AES_ALGORITHM);
+        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec);
+        byte[] decryptedBytes = cipher.doFinal(Base64.getDecoder().decode(encryptedToken));
+        return new String(decryptedBytes, "UTF-8");
+    }
+}
